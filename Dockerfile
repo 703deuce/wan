@@ -1,6 +1,6 @@
 # Use NVIDIA CUDA base image with Python (updated to supported version)
-# Using CUDA 12.2.2 which is a valid and available tag
-FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
+# Using CUDA 12.2.2 devel image (includes nvcc compiler needed for flash-attn build)
+FROM nvidia/cuda:12.2.2-cudnn8-devel-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
