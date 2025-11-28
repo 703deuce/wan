@@ -36,9 +36,31 @@ COPY requirements.txt /app/requirements.txt
 # Install PyTorch first (required for flash-attn build)
 RUN pip3 install --no-cache-dir torch>=2.4.0 torchvision>=0.19.0 torchaudio>=2.4.0
 
-# Install remaining Python dependencies (flash-attn will be skipped if it fails)
-RUN pip3 install --no-cache-dir -r requirements.txt || \
-    (pip3 install --no-cache-dir -r requirements.txt --ignore-installed flash-attn && echo "flash-attn installation skipped")
+# Install other dependencies (excluding flash-attn for now)
+RUN pip3 install --no-cache-dir \
+    transformers>=4.40.0 \
+    diffusers>=0.30.0 \
+    accelerate>=0.30.0 \
+    safetensors>=0.4.0 \
+    huggingface-hub>=0.20.0 \
+    Pillow>=10.0.0 \
+    opencv-python>=4.8.0 \
+    imageio>=2.31.0 \
+    imageio-ffmpeg>=0.4.9 \
+    librosa>=0.10.0 \
+    soundfile>=0.12.0 \
+    numpy>=1.24.0 \
+    requests>=2.31.0 \
+    tqdm>=4.66.0 \
+    runpod>=1.6.0 \
+    einops>=0.7.0 \
+    xformers>=0.0.23 \
+    timm>=0.9.0 \
+    omegaconf>=2.3.0 \
+    pyyaml>=6.0.1
+
+# Try to install flash-attn (optional, skip if it fails)
+RUN pip3 install --no-cache-dir flash-attn>=2.5.0 || echo "flash-attn installation skipped (optional)"
 
 # Copy application code
 COPY handler.py /app/handler.py
