@@ -37,6 +37,9 @@ COPY requirements.txt /app/requirements.txt
 # Install PyTorch first (required for flash-attn build)
 RUN pip3 install --no-cache-dir "torch>=2.4.0" "torchvision>=0.19.0" "torchaudio>=2.4.0"
 
+# Install psutil (required build dependency for flash-attn)
+RUN pip3 install --no-cache-dir psutil
+
 # Install flash-attn immediately after PyTorch (required for Wan2.2-S2V)
 # Use --no-build-isolation so flash-attn can see the installed torch during build
 RUN pip3 install --no-cache-dir "flash-attn>=2.5.0" --no-build-isolation
