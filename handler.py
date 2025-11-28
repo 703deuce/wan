@@ -98,6 +98,7 @@ def run_generate_script(audio_path, image_path, output_path, prompt="", resoluti
         size = "1024*704"  # 720P as per docs
     
     # Build command following the exact format from Wan2.2 docs
+    # Note: generate.py uses --save_file, not --output
     cmd = [
         "python", GENERATE_SCRIPT,
         "--task", "s2v-14B",
@@ -109,9 +110,9 @@ def run_generate_script(audio_path, image_path, output_path, prompt="", resoluti
         "--audio", audio_path,
     ]
     
-    # Add output path if generate.py supports it (some versions do)
+    # Use --save_file instead of --output (generate.py parameter name)
     if output_path:
-        cmd.extend(["--output", output_path])
+        cmd.extend(["--save_file", output_path])
     
     if prompt:
         cmd.extend(["--prompt", prompt])
