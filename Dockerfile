@@ -67,8 +67,10 @@ RUN pip3 install --no-cache-dir flash-attn>=2.5.0 || echo "flash-attn installati
 RUN git clone https://github.com/Wan-Video/Wan2.2.git /app/wan2.2
 
 # Install Wan2.2 and its dependencies
+# Skip flash_attn since it's already installed (or optional) and causes build isolation issues
 RUN cd /app/wan2.2 && \
-    pip3 install -r requirements.txt && \
+    grep -v "^flash_attn" requirements.txt > /tmp/wan2_requirements.txt && \
+    pip3 install -r /tmp/wan2_requirements.txt && \
     if [ -f requirements_s2v.txt ]; then pip3 install -r requirements_s2v.txt; fi
 
 # Install huggingface-cli for model download
