@@ -74,10 +74,10 @@ RUN cd /app/wan2.2 && \
     if [ -f requirements_s2v.txt ]; then pip3 install -r requirements_s2v.txt; fi
 
 # Install peft explicitly after Wan2.2 requirements
-# Need a version compatible with transformers 4.49-4.51.3 (Wan2.2 requirement)
-# peft 0.8.x works with transformers 4.x, but newer peft (>=0.17.0) needs newer transformers
-# Try installing peft 0.8.2 which should work with both transformers 4.51.3 and diffusers 0.31+
-RUN pip3 install --no-cache-dir "peft==0.8.2" || pip3 install --no-cache-dir "peft>=0.6.0,<0.9.0"
+# transformers 4.51.3 (installed by Wan2.2) should have modeling_layers (>=4.44.0)
+# Use peft 0.13.0+ which supports modeling_layers but is compatible with transformers 4.51.3
+# This version works with diffusers 0.31+ and transformers 4.44-4.51.3
+RUN pip3 install --no-cache-dir "peft>=0.13.0,<0.18.0"
 
 # Install huggingface-cli for model download
 RUN pip3 install "huggingface_hub[cli]"
