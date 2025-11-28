@@ -1,10 +1,9 @@
 """
 RunPod Serverless Handler for Wan2.2-S2V-14B Model
-Handles audio-driven video generation requests using generate.py subprocess
+Simple subprocess-based approach using generate.py
 """
 
 import os
-import sys
 import json
 import base64
 import tempfile
@@ -12,6 +11,10 @@ import traceback
 import subprocess
 from typing import Dict, Any
 import requests
+
+# Constants
+MODEL_DIR = "/app/models/Wan2.2-S2V-14B"
+GENERATE_SCRIPT = "/app/wan2.2/generate.py"
 
 
 def download_file(url: str, output_path: str) -> str:
@@ -29,37 +32,24 @@ def download_file(url: str, output_path: str) -> str:
         raise Exception(f"Failed to download file from {url}: {str(e)}")
 
 
-# Model directory (downloaded during Docker build)
-MODEL_DIR = "/app/models/Wan2.2-S2V-14B"
-GENERATE_SCRIPT = "/app/wan2.2/generate.py"
-
-
-def run_generate_script(audio_path, image_path, output_path, prompt="", resolution="720", seed=None):
+def run_generate_script(audio_path, image_path, output_dir, prompt="", resolution="720", seed=None):
     """Run the Wan2.2 generate.py script for S2V generation."""
-    import subprocess
-    
-    model_dir = "/app/models/Wan2.2-S2V-14B"
-    generate_script = "/app/wan2.2/generate.py"
-    
-    # Calculate size based on resolution (maintaining aspect ratio from image)
-    # For 720P, use 1024*704 as shown in examples
-    # For 480P, use smaller size
+    # Calculate size based on resolution
     if resolution == "480":
-        size = "768*512"  # Approximate 480P
+        size = "768*512"
     else:
-        size = "1024*704"  # 720P
+        size = "1024*704"
     
     # Build command
     cmd = [
-        "python", generate_script,
+        "python", GENERATE_SCRIPT,
         "--task", "s2v-14B",
         "--size", size,
-        "--ckpt_dir", model_dir,
+        "--ckpt_dir", MODEL_DIR,
         "--offload_model", "True",
         "--convert_model_dtype",
         "--image", image_path,
         "--audio", audio_path,
-        "--output", output_path,
     ]
     
     if prompt:
@@ -68,27 +58,50 @@ def run_generate_script(audio_path, image_path, output_path, prompt="", resoluti
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
     
-    print(f"Running command: {' '.join(cmd)}")
+    print(f"Running: {' '.join(cmd)}")
     
+    # Run generate.py
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=1800,  # 30 minute timeout
+        cwd="/app/wan2.2"
+    )
+    
+    if result.returncode != 0:
+        print(f"STDOUT: {result.stdout}")
+        print(f"STDERR: {result.stderr}")
+        raise Exception(f"generate.py failed: {result.stderr}")
+    
+    print(f"Generation completed: {result.stdout}")
+    
+    # Find the output video file (generate.py outputs to current directory)
+    # Get most recently modified video file
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=1800,  # 30 minute timeout
-            cwd="/app/wan2.2"
-        )
-        
-        if result.returncode != 0:
-            raise Exception(f"generate.py failed: {result.stderr}")
-        
-        print(f"Generation completed. Output: {result.stdout}")
-        return output_path
-        
-    except subprocess.TimeoutExpired:
-        raise Exception("Generation timed out after 30 minutes")
-    except Exception as e:
-        raise Exception(f"Error running generate.py: {str(e)}")
+        video_files = [
+            os.path.join("/app/wan2.2", f) for f in os.listdir("/app/wan2.2")
+            if f.endswith(('.mp4', '.avi', '.mov'))
+        ]
+        if video_files:
+            # Get the most recent one
+            return max(video_files, key=os.path.getmtime)
+    except:
+        pass
+    
+    # Check output_dir as fallback
+    try:
+        video_files = [
+            os.path.join(output_dir, f) for f in os.listdir(output_dir)
+            if f.endswith(('.mp4', '.avi', '.mov'))
+        ]
+        if video_files:
+            return max(video_files, key=os.path.getmtime)
+    except:
+        pass
+    
+    raise Exception("Could not find generated video file")
+
 
 def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -98,17 +111,12 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
     {
         "input": {
             "audio_url": "https://example.com/audio.wav",  # Required
-            "image_url": "https://example.com/image.jpg",   # Required (visual condition)
-            "prompt": "cinematic scene, professional lighting",  # Optional: text prompt for style
+            "image_url": "https://example.com/image.jpg",   # Required
+            "prompt": "cinematic scene",  # Optional
             "resolution": "720",  # Optional: "480" or "720" (default: "720")
             "seed": 42,  # Optional: random seed
-            "num_inference_steps": 50,  # Optional: number of inference steps
-            "guidance_scale": 1.0,  # Optional: guidance scale
         }
     }
-    
-    Note: Wan2.2-S2V requires audio + at least one visual condition (image).
-    Audio alone is not supported - the model needs an image to animate.
     """
     try:
         input_data = job.get("input", {})
@@ -121,20 +129,17 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
                 "status": "error"
             }
         
-        # Image is required - Wan2.2-S2V needs visual conditioning
         image_url = input_data.get("image_url")
         if not image_url:
             return {
-                "error": "image_url is required. Wan2.2-S2V requires audio + image (visual condition) to generate video.",
+                "error": "image_url is required. Wan2.2-S2V requires audio + image to generate video.",
                 "status": "error"
             }
         
         # Get optional parameters
-        prompt = input_data.get("prompt", "")  # Optional text prompt for style/camera/background
+        prompt = input_data.get("prompt", "")
         resolution = input_data.get("resolution", "720")
         seed = input_data.get("seed", None)
-        num_inference_steps = input_data.get("num_inference_steps", 50)
-        guidance_scale = input_data.get("guidance_scale", 1.0)
         
         # Validate resolution
         if resolution not in ["480", "720"]:
@@ -147,61 +152,31 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
             print(f"Downloading audio from {audio_url}...")
             download_file(audio_url, audio_path)
             
-            # Download image file (required)
+            # Download image file
             image_path = os.path.join(tmpdir, "image.jpg")
             print(f"Downloading image from {image_url}...")
             download_file(image_url, image_path)
-            image = Image.open(image_path).convert("RGB")
             
-            # Set up generator with seed if provided
-            generator = None
-            if seed is not None:
-                generator = torch.Generator(device=device).manual_seed(seed)
-            
-            # Generate video using Wan2.2 generate.py script
+            # Generate video using generate.py
             print(f"Generating video at {resolution}P resolution...")
             if prompt:
                 print(f"Using text prompt: {prompt}")
             
-            # Output video path
-            video_path = os.path.join(tmpdir, "output.mp4")
-            
-            # Run the generate.py script
-            run_generate_script(
+            video_path = run_generate_script(
                 audio_path=audio_path,
                 image_path=image_path,
-                output_path=video_path,
+                output_dir=tmpdir,
                 prompt=prompt,
                 resolution=resolution,
                 seed=seed
             )
-            
-            # Check if video was generated
-            if not os.path.exists(video_path):
-                # Try to find the output file (generate.py might use different naming)
-                possible_outputs = [
-                    os.path.join(tmpdir, f) for f in os.listdir(tmpdir) 
-                    if f.endswith(('.mp4', '.avi', '.mov'))
-                ]
-                if possible_outputs:
-                    video_path = possible_outputs[0]
-                else:
-                    # Check wan2.2 directory
-                    wan_outputs = [
-                        os.path.join("/app/wan2.2", f) for f in os.listdir("/app/wan2.2") 
-                        if f.endswith(('.mp4', '.avi', '.mov'))
-                    ]
-                    if wan_outputs:
-                        video_path = wan_outputs[0]
-                    else:
-                        raise Exception("Video file was not generated")
             
             # Read video file and encode to base64
             with open(video_path, 'rb') as f:
                 video_data = f.read()
                 video_base64 = base64.b64encode(video_data).decode('utf-8')
             
-            # Get video duration using opencv or ffprobe
+            # Get video duration
             try:
                 import cv2
                 cap = cv2.VideoCapture(video_path)
@@ -210,7 +185,6 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
                 duration = frame_count / fps if fps > 0 else 0
                 cap.release()
             except:
-                # Fallback: estimate duration
                 duration = 5.0  # Default estimate
             
             return {
@@ -238,16 +212,10 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
 def handler(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     Main RunPod serverless handler function.
-    
-    This function is called by RunPod for each job.
     """
     try:
-        # RunPod passes the job in the event
         job = event
-        
-        # Process the request
         result = process_request(job)
-        
         return result
         
     except Exception as e:
@@ -263,48 +231,11 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-# Initialize model on module load (cold start optimization)
+# RunPod serverless handler
 if __name__ == "__main__":
-    # For RunPod serverless
     try:
         import runpod
-        
-        # Initialize model on startup for faster first request
-        print("Initializing model on startup...")
-        try:
-            initialize_model()
-            print("Model initialized successfully.")
-        except Exception as e:
-            print(f"Warning: Model initialization failed: {str(e)}")
-            print("Model will be initialized on first request.")
-        
-        # Start RunPod serverless worker
+        print("Starting RunPod serverless worker...")
         runpod.serverless.start({"handler": handler})
-        
     except ImportError:
-        # For local testing without RunPod SDK
-        print("RunPod SDK not available. Running in local test mode...")
-        try:
-            initialize_model()
-            print("Model initialized. Ready to process requests.")
-            
-            # Example test request
-            test_job = {
-                "input": {
-                    "audio_url": "https://example.com/test.wav",
-                    "image_url": "https://example.com/image.jpg",
-                    "prompt": "cinematic scene, professional lighting",
-                    "resolution": "720"
-                }
-            }
-            # Uncomment to test locally:
-            # result = handler(test_job)
-            # print(f"Test result: {result}")
-            
-        except Exception as e:
-            print(f"Failed to initialize model: {str(e)}")
-            sys.exit(1)
-else:
-    # When imported by RunPod, initialize on first request
-    print("Handler module loaded. Model will initialize on first request.")
-
+        print("RunPod SDK not available. Handler ready for testing.")
