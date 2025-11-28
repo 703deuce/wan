@@ -16,6 +16,61 @@ import requests
 MODEL_DIR = "/app/models/Wan2.2-S2V-14B"
 GENERATE_SCRIPT = "/app/wan2.2/generate.py"
 
+# Global flag to track if model is downloaded
+_model_downloaded = False
+
+
+def ensure_model_downloaded():
+    """Download model if it doesn't exist. Uses HUGGINGFACE_TOKEN from environment if needed."""
+    global _model_downloaded
+    
+    if _model_downloaded:
+        return
+    
+    # Check if model directory exists and has files
+    if os.path.exists(MODEL_DIR) and os.listdir(MODEL_DIR):
+        # Check for key model files
+        required_files = ["config.json", "diffusion_pytorch_model.safetensors.index.json"]
+        if all(os.path.exists(os.path.join(MODEL_DIR, f)) for f in required_files):
+            print(f"Model already exists at {MODEL_DIR}")
+            _model_downloaded = True
+            return
+    
+    # Download model using huggingface-cli
+    print(f"Downloading model to {MODEL_DIR}...")
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    
+    # Get HF token from environment
+    hf_token = os.environ.get("HUGGINGFACE_TOKEN", "")
+    
+    cmd = [
+        "huggingface-cli", "download",
+        "Wan-AI/Wan2.2-S2V-14B",
+        "--local-dir", MODEL_DIR,
+    ]
+    
+    if hf_token:
+        cmd.extend(["--token", hf_token])
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=3600,  # 1 hour timeout for model download
+        )
+        
+        if result.returncode != 0:
+            raise Exception(f"Model download failed: {result.stderr}")
+        
+        print("Model download completed successfully")
+        _model_downloaded = True
+        
+    except subprocess.TimeoutExpired:
+        raise Exception("Model download timed out after 1 hour")
+    except Exception as e:
+        raise Exception(f"Error downloading model: {str(e)}")
+
 
 def download_file(url: str, output_path: str) -> str:
     """Download a file from URL to local path."""
@@ -119,6 +174,9 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
     }
     """
     try:
+        # Ensure model is downloaded before processing
+        ensure_model_downloaded()
+        
         input_data = job.get("input", {})
         
         # Validate required inputs
