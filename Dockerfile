@@ -44,6 +44,7 @@ RUN pip3 install --no-cache-dir \
     accelerate>=0.30.0 \
     safetensors>=0.4.0 \
     huggingface-hub>=0.20.0 \
+    peft>=0.8.0 \
     Pillow>=10.0.0 \
     opencv-python>=4.8.0 \
     imageio>=2.31.0 \
