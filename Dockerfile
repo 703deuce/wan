@@ -35,9 +35,17 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
 COPY requirements.txt /app/requirements.txt
 
 # Install PyTorch first (required for flash-attn build)
-RUN pip3 install --no-cache-dir torch>=2.4.0 torchvision>=0.19.0 torchaudio>=2.4.0
+RUN pip3 install --no-cache-dir "torch>=2.4.0" "torchvision>=0.19.0" "torchaudio>=2.4.0"
 
-# Install other dependencies (excluding flash-attn, transformers, diffusers, and peft - let Wan2.2 handle versions)
+# Install flash-attn immediately after PyTorch (required for Wan2.2-S2V)
+# Use --no-build-isolation so flash-attn can see the installed torch during build
+RUN pip3 install --no-cache-dir "flash-attn>=2.5.0" --no-build-isolation
+
+# Verify flash-attn is importable
+RUN python3 -c "import flash_attn; print(f'FlashAttention version: {flash_attn.__version__}')" || \
+    (echo "ERROR: flash_attn import failed" && exit 1)
+
+# Install other dependencies (excluding transformers, diffusers, and peft - let Wan2.2 handle versions)
 # Note: We don't install transformers/diffusers/peft here to avoid version conflicts with Wan2.2's requirements
 RUN pip3 install --no-cache-dir \
     accelerate>=0.30.0 \
@@ -58,16 +66,6 @@ RUN pip3 install --no-cache-dir \
     timm>=0.9.0 \
     omegaconf>=2.3.0 \
     pyyaml>=6.0.1
-
-# Install flash-attn (required for Wan2.2-S2V)
-# FlashAttention 2 is required - must match CUDA 12.2.2 and PyTorch 2.4+
-RUN pip3 install --no-cache-dir "flash-attn>=2.5.0" --no-build-isolation || \
-    (echo "flash-attn build failed, trying with build isolation..." && \
-     pip3 install --no-cache-dir "flash-attn>=2.5.0")
-
-# Verify flash-attn is importable
-RUN python3 -c "import flash_attn; print(f'FlashAttention version: {flash_attn.__version__}')" || \
-    (echo "ERROR: flash_attn import failed" && exit 1)
 
 # Clone Wan2.2 repository
 RUN git clone https://github.com/Wan-Video/Wan2.2.git /app/wan2.2
