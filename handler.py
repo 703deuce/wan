@@ -16,18 +16,30 @@ import torch
 from PIL import Image
 import numpy as np
 
-# Add current directory to path for imports
+# Add current directory and Wan2.2 repo to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, "/app/wan2.2")
 
 # Try to import Wan2.2 modules - adjust based on actual structure
 try:
     from wan.pipelines import WanS2VPipeline
     from wan.utils import export_to_video
-except ImportError:
+    print("Successfully imported Wan2.2 modules")
+except ImportError as e:
     # Fallback if structure is different
-    print("Warning: Could not import Wan2.2 modules directly. Adjust imports based on actual structure.")
-    WanS2VPipeline = None
-    export_to_video = None
+    print(f"Warning: Could not import Wan2.2 modules: {e}")
+    print("Trying alternative import paths...")
+    try:
+        # Try alternative import paths
+        import sys
+        sys.path.insert(0, "/app/wan2.2/wan")
+        from pipelines import WanS2VPipeline
+        from utils import export_to_video
+        print("Successfully imported using alternative path")
+    except ImportError as e2:
+        print(f"Alternative import also failed: {e2}")
+        WanS2VPipeline = None
+        export_to_video = None
 
 # Global model instance
 model = None
