@@ -81,68 +81,109 @@ def download_file(url: str, output_path: str) -> str:
         raise Exception(f"Failed to download file from {url}: {str(e)}")
 
 
-def initialize_model():
-    """Initialize the Wan2.2-S2V model on startup."""
-    global model, device
+def download_model_if_needed():
+    """Download the model using huggingface-cli if not already present."""
+    model_dir = "/app/models/Wan2.2-S2V-14B"
+    model_id = "Wan-AI/Wan2.2-S2V-14B"
     
-    if model is not None:
-        return model
+    if os.path.exists(model_dir) and os.listdir(model_dir):
+        print(f"Model already exists at {model_dir}")
+        return model_dir
     
+    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
+    if not hf_token:
+        raise ValueError("HUGGINGFACE_TOKEN environment variable is required")
+    
+    print(f"Downloading model {model_id} to {model_dir}...")
+    os.makedirs(model_dir, exist_ok=True)
+    
+    # Use huggingface_hub to download
+    from huggingface_hub import snapshot_download
     try:
-        # Get Hugging Face token from environment
-        hf_token = os.environ.get("HUGGINGFACE_TOKEN")
-        if not hf_token:
-            raise ValueError("HUGGINGFACE_TOKEN environment variable is required")
-        
-        # Set device
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {device}")
-        
-        # Model repository
-        model_id = "Wan-AI/Wan2.2-S2V-14B"
-        
-        # Initialize pipeline
-        print(f"Loading model {model_id}...")
-        print(f"WanS2VPipeline available: {WanS2VPipeline is not None}")
-        
-        if WanS2VPipeline:
-            print("Attempting to load using WanS2VPipeline...")
-            try:
-                model = WanS2VPipeline.from_pretrained(
-                    model_id,
-                    torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
-                    token=hf_token,
-                )
-                model = model.to(device)
-                model.eval()
-                print("Model loaded successfully using WanS2VPipeline")
-            except Exception as e:
-                print(f"Failed to load with WanS2VPipeline: {e}")
-                print("Trying alternative loading method...")
-                raise
-        else:
-            print("WanS2VPipeline not available. Checking if model exists on Hugging Face...")
-            # Check if model repository exists
-            from huggingface_hub import HfApi
-            api = HfApi(token=hf_token)
-            try:
-                model_info = api.model_info(model_id)
-                print(f"Model found on Hugging Face. Files: {[f.rfilename for f in model_info.siblings[:10]]}")
-            except Exception as e:
-                print(f"Error checking model on Hugging Face: {e}")
-            
-            # The model might need to be loaded differently - check Wan2.2 generate.py approach
-            print("Model may need to be loaded using Wan2.2's generate.py script approach")
-            raise ValueError(f"Cannot load model {model_id}: WanS2VPipeline not available and model may not be in standard diffusers format")
-        
-        print("Model loaded successfully")
-        return model
-        
+        snapshot_download(
+            repo_id=model_id,
+            local_dir=model_dir,
+            token=hf_token,
+            local_dir_use_symlinks=False
+        )
+        print(f"Model downloaded successfully to {model_dir}")
+        return model_dir
     except Exception as e:
-        print(f"Error initializing model: {str(e)}")
-        print(traceback.format_exc())
+        print(f"Error downloading model: {e}")
         raise
 
+def initialize_model():
+    """Initialize the Wan2.2-S2V model - model is loaded on-demand via generate.py approach."""
+    global model, device
+    
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    
+    # Download model if needed
+    model_dir = download_model_if_needed()
+    
+    # The model will be loaded on-demand when processing requests
+    # using the generate.py approach from Wan2.2
+    print("Model directory ready. Model will be loaded on-demand during inference.")
+    return model_dir
+
+
+def run_generate_script(audio_path, image_path, output_path, prompt="", resolution="720", seed=None):
+    """Run the Wan2.2 generate.py script for S2V generation."""
+    import subprocess
+    
+    model_dir = "/app/models/Wan2.2-S2V-14B"
+    generate_script = "/app/wan2.2/generate.py"
+    
+    # Calculate size based on resolution (maintaining aspect ratio from image)
+    # For 720P, use 1024*704 as shown in examples
+    # For 480P, use smaller size
+    if resolution == "480":
+        size = "768*512"  # Approximate 480P
+    else:
+        size = "1024*704"  # 720P
+    
+    # Build command
+    cmd = [
+        "python", generate_script,
+        "--task", "s2v-14B",
+        "--size", size,
+        "--ckpt_dir", model_dir,
+        "--offload_model", "True",
+        "--convert_model_dtype",
+        "--image", image_path,
+        "--audio", audio_path,
+        "--output", output_path,
+    ]
+    
+    if prompt:
+        cmd.extend(["--prompt", prompt])
+    
+    if seed is not None:
+        cmd.extend(["--seed", str(seed)])
+    
+    print(f"Running command: {' '.join(cmd)}")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=1800,  # 30 minute timeout
+            cwd="/app/wan2.2"
+        )
+        
+        if result.returncode != 0:
+            raise Exception(f"generate.py failed: {result.stderr}")
+        
+        print(f"Generation completed. Output: {result.stdout}")
+        return output_path
+        
+    except subprocess.TimeoutExpired:
+        raise Exception("Generation timed out after 30 minutes")
+    except Exception as e:
+        raise Exception(f"Error running generate.py: {str(e)}")
 
 def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
     """
