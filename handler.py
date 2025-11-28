@@ -21,25 +21,45 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, "/app/wan2.2")
 
 # Try to import Wan2.2 modules - adjust based on actual structure
-try:
-    from wan.pipelines import WanS2VPipeline
-    from wan.utils import export_to_video
-    print("Successfully imported Wan2.2 modules")
-except ImportError as e:
-    # Fallback if structure is different
-    print(f"Warning: Could not import Wan2.2 modules: {e}")
-    print("Trying alternative import paths...")
+WanS2VPipeline = None
+export_to_video = None
+
+# Try multiple import paths
+import_paths = [
+    ("wan.pipelines", "WanS2VPipeline"),
+    ("wan.utils", "export_to_video"),
+]
+
+for module_name, attr_name in import_paths:
     try:
-        # Try alternative import paths
-        import sys
+        module = __import__(module_name, fromlist=[attr_name])
+        if attr_name == "WanS2VPipeline":
+            WanS2VPipeline = getattr(module, attr_name, None)
+        elif attr_name == "export_to_video":
+            export_to_video = getattr(module, attr_name, None)
+        print(f"Successfully imported {attr_name} from {module_name}")
+    except ImportError as e:
+        print(f"Failed to import {attr_name} from {module_name}: {e}")
+
+# Try direct path imports
+if not WanS2VPipeline:
+    try:
         sys.path.insert(0, "/app/wan2.2/wan")
         from pipelines import WanS2VPipeline
+        print("Successfully imported WanS2VPipeline from direct path")
+    except ImportError as e:
+        print(f"Direct path import failed: {e}")
+
+if not export_to_video:
+    try:
+        sys.path.insert(0, "/app/wan2.2/wan")
         from utils import export_to_video
-        print("Successfully imported using alternative path")
-    except ImportError as e2:
-        print(f"Alternative import also failed: {e2}")
-        WanS2VPipeline = None
-        export_to_video = None
+        print("Successfully imported export_to_video from direct path")
+    except ImportError as e:
+        print(f"Direct path import for export_to_video failed: {e}")
+
+if not WanS2VPipeline:
+    print("WARNING: WanS2VPipeline not found. Will need to use alternative loading method.")
 
 # Global model instance
 model = None
@@ -83,24 +103,37 @@ def initialize_model():
         
         # Initialize pipeline
         print(f"Loading model {model_id}...")
+        print(f"WanS2VPipeline available: {WanS2VPipeline is not None}")
         
         if WanS2VPipeline:
-            model = WanS2VPipeline.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
-                token=hf_token,
-            )
-            model = model.to(device)
-            model.eval()
+            print("Attempting to load using WanS2VPipeline...")
+            try:
+                model = WanS2VPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
+                    token=hf_token,
+                )
+                model = model.to(device)
+                model.eval()
+                print("Model loaded successfully using WanS2VPipeline")
+            except Exception as e:
+                print(f"Failed to load with WanS2VPipeline: {e}")
+                print("Trying alternative loading method...")
+                raise
         else:
-            # Fallback: use diffusers if available
-            from diffusers import DiffusionPipeline
-            model = DiffusionPipeline.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16 if device.type == "cuda" else torch.float32,
-                token=hf_token,
-            )
-            model = model.to(device)
+            print("WanS2VPipeline not available. Checking if model exists on Hugging Face...")
+            # Check if model repository exists
+            from huggingface_hub import HfApi
+            api = HfApi(token=hf_token)
+            try:
+                model_info = api.model_info(model_id)
+                print(f"Model found on Hugging Face. Files: {[f.rfilename for f in model_info.siblings[:10]]}")
+            except Exception as e:
+                print(f"Error checking model on Hugging Face: {e}")
+            
+            # The model might need to be loaded differently - check Wan2.2 generate.py approach
+            print("Model may need to be loaded using Wan2.2's generate.py script approach")
+            raise ValueError(f"Cannot load model {model_id}: WanS2VPipeline not available and model may not be in standard diffusers format")
         
         print("Model loaded successfully")
         return model
