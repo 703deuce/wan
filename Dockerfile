@@ -63,15 +63,24 @@ RUN pip3 install --no-cache-dir \
 # Try to install flash-attn (optional, skip if it fails)
 RUN pip3 install --no-cache-dir flash-attn>=2.5.0 || echo "flash-attn installation skipped (optional)"
 
-# Clone Wan2.2 repository to get the S2V pipeline code
-RUN git clone https://github.com/Wan-Video/Wan2.2.git /app/wan2.2 && \
-    cd /app/wan2.2 && \
-    pip3 install -e . || echo "Wan2.2 installation note: May need requirements_s2v.txt"
+# Clone Wan2.2 repository
+RUN git clone https://github.com/Wan-Video/Wan2.2.git /app/wan2.2
 
-# Install Wan2.2 S2V specific requirements if available
-RUN if [ -f /app/wan2.2/requirements_s2v.txt ]; then \
-        pip3 install --no-cache-dir -r /app/wan2.2/requirements_s2v.txt; \
-    fi
+# Install Wan2.2 and its dependencies
+RUN cd /app/wan2.2 && \
+    pip3 install -r requirements.txt && \
+    if [ -f requirements_s2v.txt ]; then pip3 install -r requirements_s2v.txt; fi
+
+# Install huggingface-cli for model download
+RUN pip3 install "huggingface_hub[cli]"
+
+# Download the model during build (will use HF_TOKEN at runtime if needed)
+# Note: For public models, this works without token. For private/gated, token needed at runtime.
+RUN mkdir -p /app/models && \
+    huggingface-cli download Wan-AI/Wan2.2-S2V-14B \
+        --local-dir /app/models/Wan2.2-S2V-14B \
+        --local-dir-use-symlinks False || \
+    echo "Model download will happen at runtime if HF_TOKEN is provided"
 
 # Add Wan2.2 to Python path
 ENV PYTHONPATH=/app/wan2.2:$PYTHONPATH

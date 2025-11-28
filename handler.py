@@ -1,6 +1,6 @@
 """
 RunPod Serverless Handler for Wan2.2-S2V-14B Model
-Handles audio-driven video generation requests
+Handles audio-driven video generation requests using generate.py subprocess
 """
 
 import os
@@ -9,61 +9,9 @@ import json
 import base64
 import tempfile
 import traceback
-from pathlib import Path
-from typing import Dict, Any, Optional
+import subprocess
+from typing import Dict, Any
 import requests
-import torch
-from PIL import Image
-import numpy as np
-
-# Add current directory and Wan2.2 repo to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/app/wan2.2")
-
-# Try to import Wan2.2 modules - adjust based on actual structure
-WanS2VPipeline = None
-export_to_video = None
-
-# Try multiple import paths
-import_paths = [
-    ("wan.pipelines", "WanS2VPipeline"),
-    ("wan.utils", "export_to_video"),
-]
-
-for module_name, attr_name in import_paths:
-    try:
-        module = __import__(module_name, fromlist=[attr_name])
-        if attr_name == "WanS2VPipeline":
-            WanS2VPipeline = getattr(module, attr_name, None)
-        elif attr_name == "export_to_video":
-            export_to_video = getattr(module, attr_name, None)
-        print(f"Successfully imported {attr_name} from {module_name}")
-    except ImportError as e:
-        print(f"Failed to import {attr_name} from {module_name}: {e}")
-
-# Try direct path imports
-if not WanS2VPipeline:
-    try:
-        sys.path.insert(0, "/app/wan2.2/wan")
-        from pipelines import WanS2VPipeline
-        print("Successfully imported WanS2VPipeline from direct path")
-    except ImportError as e:
-        print(f"Direct path import failed: {e}")
-
-if not export_to_video:
-    try:
-        sys.path.insert(0, "/app/wan2.2/wan")
-        from utils import export_to_video
-        print("Successfully imported export_to_video from direct path")
-    except ImportError as e:
-        print(f"Direct path import for export_to_video failed: {e}")
-
-if not WanS2VPipeline:
-    print("WARNING: WanS2VPipeline not found. Will need to use alternative loading method.")
-
-# Global model instance
-model = None
-device = None
 
 
 def download_file(url: str, output_path: str) -> str:
@@ -81,52 +29,9 @@ def download_file(url: str, output_path: str) -> str:
         raise Exception(f"Failed to download file from {url}: {str(e)}")
 
 
-def download_model_if_needed():
-    """Download the model using huggingface-cli if not already present."""
-    model_dir = "/app/models/Wan2.2-S2V-14B"
-    model_id = "Wan-AI/Wan2.2-S2V-14B"
-    
-    if os.path.exists(model_dir) and os.listdir(model_dir):
-        print(f"Model already exists at {model_dir}")
-        return model_dir
-    
-    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
-    if not hf_token:
-        raise ValueError("HUGGINGFACE_TOKEN environment variable is required")
-    
-    print(f"Downloading model {model_id} to {model_dir}...")
-    os.makedirs(model_dir, exist_ok=True)
-    
-    # Use huggingface_hub to download
-    from huggingface_hub import snapshot_download
-    try:
-        snapshot_download(
-            repo_id=model_id,
-            local_dir=model_dir,
-            token=hf_token,
-            local_dir_use_symlinks=False
-        )
-        print(f"Model downloaded successfully to {model_dir}")
-        return model_dir
-    except Exception as e:
-        print(f"Error downloading model: {e}")
-        raise
-
-def initialize_model():
-    """Initialize the Wan2.2-S2V model - model is loaded on-demand via generate.py approach."""
-    global model, device
-    
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    
-    # Download model if needed
-    model_dir = download_model_if_needed()
-    
-    # The model will be loaded on-demand when processing requests
-    # using the generate.py approach from Wan2.2
-    print("Model directory ready. Model will be loaded on-demand during inference.")
-    return model_dir
+# Model directory (downloaded during Docker build)
+MODEL_DIR = "/app/models/Wan2.2-S2V-14B"
+GENERATE_SCRIPT = "/app/wan2.2/generate.py"
 
 
 def run_generate_script(audio_path, image_path, output_path, prompt="", resolution="720", seed=None):
@@ -205,13 +110,7 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
     Note: Wan2.2-S2V requires audio + at least one visual condition (image).
     Audio alone is not supported - the model needs an image to animate.
     """
-    global model, device
-    
     try:
-        # Initialize model if not already done
-        if model is None:
-            initialize_model()
-        
         input_data = job.get("input", {})
         
         # Validate required inputs
