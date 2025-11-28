@@ -89,11 +89,14 @@ def download_file(url: str, output_path: str) -> str:
 
 def run_generate_script(audio_path, image_path, output_path, prompt="", resolution="720", seed=None):
     """Run the Wan2.2 generate.py script for S2V generation."""
-    # Calculate size based on resolution (following docs: 1024*704 for 720P)
+    # Use valid size values from generate.py's allowed choices
+    # For 480P: '480*832' or '832*480' (portrait/landscape)
+    # For 720P: '1024*704' or '704*1024' (landscape/portrait)
+    # Default to landscape orientation
     if resolution == "480":
-        size = "768*512"  # Approximate 480P
+        size = "832*480"  # 480P landscape (valid choice)
     else:
-        size = "1024*704"  # 720P as per docs
+        size = "1024*704"  # 720P landscape (valid choice)
     
     # Build command following the exact format from Wan2.2 docs
     cmd = [
