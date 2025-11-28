@@ -259,73 +259,60 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
             if seed is not None:
                 generator = torch.Generator(device=device).manual_seed(seed)
             
-            # Generate video
+            # Generate video using Wan2.2 generate.py script
             print(f"Generating video at {resolution}P resolution...")
             if prompt:
                 print(f"Using text prompt: {prompt}")
             
-            # Adjust resolution parameters
-            height = 480 if resolution == "480" else 720
-            width = int(height * 16 / 9)  # 16:9 aspect ratio
-            
-            # Run inference with audio + image (required combination)
-            with torch.no_grad():
-                # Build model call parameters
-                model_kwargs = {
-                    "image": image,
-                    "audio_path": audio_path,
-                    "height": height,
-                    "width": width,
-                    "num_inference_steps": num_inference_steps,
-                    "guidance_scale": guidance_scale,
-                }
-                
-                # Add text prompt if provided
-                if prompt:
-                    model_kwargs["prompt"] = prompt
-                
-                # Add generator if seed provided
-                if generator is not None:
-                    model_kwargs["generator"] = generator
-                
-                # Generate video with audio + image conditioning
-                output = model(**model_kwargs)
-            
-            # Extract video frames
-            if hasattr(output, 'frames'):
-                video_frames = output.frames[0] if isinstance(output.frames, list) else output.frames
-            elif hasattr(output, 'images'):
-                video_frames = output.images
-            else:
-                video_frames = output
-            
-            # Save video to temporary file
+            # Output video path
             video_path = os.path.join(tmpdir, "output.mp4")
             
-            if export_to_video:
-                export_to_video(video_frames, video_path, fps=24)
-            else:
-                # Fallback: use opencv or other method
-                try:
-                    import cv2
-                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                    out = cv2.VideoWriter(video_path, fourcc, 24.0, (width, height))
-                    for frame in video_frames:
-                        if isinstance(frame, np.ndarray):
-                            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                            out.write(frame_bgr)
-                    out.release()
-                except ImportError:
-                    # Last resort: save as base64
-                    pass
+            # Run the generate.py script
+            run_generate_script(
+                audio_path=audio_path,
+                image_path=image_path,
+                output_path=video_path,
+                prompt=prompt,
+                resolution=resolution,
+                seed=seed
+            )
+            
+            # Check if video was generated
+            if not os.path.exists(video_path):
+                # Try to find the output file (generate.py might use different naming)
+                possible_outputs = [
+                    os.path.join(tmpdir, f) for f in os.listdir(tmpdir) 
+                    if f.endswith(('.mp4', '.avi', '.mov'))
+                ]
+                if possible_outputs:
+                    video_path = possible_outputs[0]
+                else:
+                    # Check wan2.2 directory
+                    wan_outputs = [
+                        os.path.join("/app/wan2.2", f) for f in os.listdir("/app/wan2.2") 
+                        if f.endswith(('.mp4', '.avi', '.mov'))
+                    ]
+                    if wan_outputs:
+                        video_path = wan_outputs[0]
+                    else:
+                        raise Exception("Video file was not generated")
             
             # Read video file and encode to base64
             with open(video_path, 'rb') as f:
                 video_data = f.read()
                 video_base64 = base64.b64encode(video_data).decode('utf-8')
             
-            # Get video duration (approximate)
-            duration = len(video_frames) / 24.0  # Assuming 24 fps
+            # Get video duration using opencv or ffprobe
+            try:
+                import cv2
+                cap = cv2.VideoCapture(video_path)
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                duration = frame_count / fps if fps > 0 else 0
+                cap.release()
+            except:
+                # Fallback: estimate duration
+                duration = 5.0  # Default estimate
             
             return {
                 "status": "success",
