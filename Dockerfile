@@ -37,10 +37,9 @@ COPY requirements.txt /app/requirements.txt
 # Install PyTorch first (required for flash-attn build)
 RUN pip3 install --no-cache-dir torch>=2.4.0 torchvision>=0.19.0 torchaudio>=2.4.0
 
-# Install other dependencies (excluding flash-attn and peft - let Wan2.2 handle versions)
-# Note: We don't install transformers/peft here to avoid version conflicts with Wan2.2's requirements
+# Install other dependencies (excluding flash-attn, transformers, diffusers, and peft - let Wan2.2 handle versions)
+# Note: We don't install transformers/diffusers/peft here to avoid version conflicts with Wan2.2's requirements
 RUN pip3 install --no-cache-dir \
-    diffusers>=0.30.0 \
     accelerate>=0.30.0 \
     safetensors>=0.4.0 \
     huggingface-hub>=0.20.0 \
@@ -74,9 +73,9 @@ RUN cd /app/wan2.2 && \
     pip3 install -r /tmp/wan2_requirements.txt && \
     if [ -f requirements_s2v.txt ]; then pip3 install -r requirements_s2v.txt; fi
 
-# Install peft explicitly (may not be in Wan2.2 requirements but is needed)
-# Use a version compatible with transformers 4.49-4.51.3
-RUN pip3 install --no-cache-dir "peft>=0.6.0,<0.9.0"
+# Install peft explicitly after Wan2.2 requirements to ensure compatibility
+# diffusers 0.35.2 requires peft>=0.17.0, so install a compatible version
+RUN pip3 install --no-cache-dir "peft>=0.17.0"
 
 # Install huggingface-cli for model download
 RUN pip3 install "huggingface_hub[cli]"
