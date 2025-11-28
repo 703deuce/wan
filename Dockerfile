@@ -33,8 +33,12 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
 # Copy requirements file first for better caching
 COPY requirements.txt /app/requirements.txt
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Install PyTorch first (required for flash-attn build)
+RUN pip3 install --no-cache-dir torch>=2.4.0 torchvision>=0.19.0 torchaudio>=2.4.0
+
+# Install remaining Python dependencies (flash-attn will be skipped if it fails)
+RUN pip3 install --no-cache-dir -r requirements.txt || \
+    (pip3 install --no-cache-dir -r requirements.txt --ignore-installed flash-attn && echo "flash-attn installation skipped")
 
 # Copy application code
 COPY handler.py /app/handler.py
