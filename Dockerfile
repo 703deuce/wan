@@ -59,8 +59,15 @@ RUN pip3 install --no-cache-dir \
     omegaconf>=2.3.0 \
     pyyaml>=6.0.1
 
-# Try to install flash-attn (optional, skip if it fails)
-RUN pip3 install --no-cache-dir flash-attn>=2.5.0 || echo "flash-attn installation skipped (optional)"
+# Install flash-attn (required for Wan2.2-S2V)
+# FlashAttention 2 is required - must match CUDA 12.2.2 and PyTorch 2.4+
+RUN pip3 install --no-cache-dir "flash-attn>=2.5.0" --no-build-isolation || \
+    (echo "flash-attn build failed, trying with build isolation..." && \
+     pip3 install --no-cache-dir "flash-attn>=2.5.0")
+
+# Verify flash-attn is importable
+RUN python3 -c "import flash_attn; print(f'FlashAttention version: {flash_attn.__version__}')" || \
+    (echo "ERROR: flash_attn import failed" && exit 1)
 
 # Clone Wan2.2 repository
 RUN git clone https://github.com/Wan-Video/Wan2.2.git /app/wan2.2
