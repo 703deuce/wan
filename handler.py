@@ -316,15 +316,15 @@ if __name__ == "__main__":
             initialize_model()
             print("Model initialized. Ready to process requests.")
             
-        # Example test request
-        test_job = {
-            "input": {
-                "audio_url": "https://example.com/test.wav",
-                "image_url": "https://example.com/image.jpg",
-                "prompt": "cinematic scene, professional lighting",
-                "resolution": "720"
+            # Example test request
+            test_job = {
+                "input": {
+                    "audio_url": "https://example.com/test.wav",
+                    "image_url": "https://example.com/image.jpg",
+                    "prompt": "cinematic scene, professional lighting",
+                    "resolution": "720"
+                }
             }
-        }
             # Uncomment to test locally:
             # result = handler(test_job)
             # print(f"Test result: {result}")
