@@ -37,14 +37,13 @@ COPY requirements.txt /app/requirements.txt
 # Install PyTorch first (required for flash-attn build)
 RUN pip3 install --no-cache-dir torch>=2.4.0 torchvision>=0.19.0 torchaudio>=2.4.0
 
-# Install other dependencies (excluding flash-attn for now)
+# Install other dependencies (excluding flash-attn and peft - let Wan2.2 handle versions)
+# Note: We don't install transformers/peft here to avoid version conflicts with Wan2.2's requirements
 RUN pip3 install --no-cache-dir \
-    transformers>=4.40.0 \
     diffusers>=0.30.0 \
     accelerate>=0.30.0 \
     safetensors>=0.4.0 \
     huggingface-hub>=0.20.0 \
-    peft>=0.8.0 \
     Pillow>=10.0.0 \
     opencv-python>=4.8.0 \
     imageio>=2.31.0 \
@@ -69,6 +68,7 @@ RUN git clone https://github.com/Wan-Video/Wan2.2.git /app/wan2.2
 
 # Install Wan2.2 and its dependencies
 # Skip flash_attn since it's already installed (or optional) and causes build isolation issues
+# Let Wan2.2's requirements handle transformers and peft versions to ensure compatibility
 RUN cd /app/wan2.2 && \
     grep -v "^flash_attn" requirements.txt > /tmp/wan2_requirements.txt && \
     pip3 install -r /tmp/wan2_requirements.txt && \
