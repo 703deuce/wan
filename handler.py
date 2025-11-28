@@ -87,15 +87,15 @@ def download_file(url: str, output_path: str) -> str:
         raise Exception(f"Failed to download file from {url}: {str(e)}")
 
 
-def run_generate_script(audio_path, image_path, output_dir, prompt="", resolution="720", seed=None):
+def run_generate_script(audio_path, image_path, output_path, prompt="", resolution="720", seed=None):
     """Run the Wan2.2 generate.py script for S2V generation."""
-    # Calculate size based on resolution
+    # Calculate size based on resolution (following docs: 1024*704 for 720P)
     if resolution == "480":
-        size = "768*512"
+        size = "768*512"  # Approximate 480P
     else:
-        size = "1024*704"
+        size = "1024*704"  # 720P as per docs
     
-    # Build command
+    # Build command following the exact format from Wan2.2 docs
     cmd = [
         "python", GENERATE_SCRIPT,
         "--task", "s2v-14B",
@@ -106,6 +106,10 @@ def run_generate_script(audio_path, image_path, output_dir, prompt="", resolutio
         "--image", image_path,
         "--audio", audio_path,
     ]
+    
+    # Add output path if generate.py supports it (some versions do)
+    if output_path:
+        cmd.extend(["--output", output_path])
     
     if prompt:
         cmd.extend(["--prompt", prompt])
@@ -131,8 +135,12 @@ def run_generate_script(audio_path, image_path, output_dir, prompt="", resolutio
     
     print(f"Generation completed: {result.stdout}")
     
-    # Find the output video file (generate.py outputs to current directory)
-    # Get most recently modified video file
+    # Check if output_path exists (if --output was used)
+    if output_path and os.path.exists(output_path):
+        return output_path
+    
+    # Fallback: Find the output video file (generate.py may output to current directory)
+    # Get most recently modified video file in wan2.2 directory
     try:
         video_files = [
             os.path.join("/app/wan2.2", f) for f in os.listdir("/app/wan2.2")
@@ -144,16 +152,18 @@ def run_generate_script(audio_path, image_path, output_dir, prompt="", resolutio
     except:
         pass
     
-    # Check output_dir as fallback
-    try:
-        video_files = [
-            os.path.join(output_dir, f) for f in os.listdir(output_dir)
-            if f.endswith(('.mp4', '.avi', '.mov'))
-        ]
-        if video_files:
-            return max(video_files, key=os.path.getmtime)
-    except:
-        pass
+    # Check output_path's directory as fallback
+    if output_path:
+        output_dir = os.path.dirname(output_path)
+        try:
+            video_files = [
+                os.path.join(output_dir, f) for f in os.listdir(output_dir)
+                if f.endswith(('.mp4', '.avi', '.mov'))
+            ]
+            if video_files:
+                return max(video_files, key=os.path.getmtime)
+        except:
+            pass
     
     raise Exception("Could not find generated video file")
 
@@ -220,10 +230,13 @@ def process_request(job: Dict[str, Any]) -> Dict[str, Any]:
             if prompt:
                 print(f"Using text prompt: {prompt}")
             
+            # Output video path
+            video_path = os.path.join(tmpdir, "output.mp4")
+            
             video_path = run_generate_script(
                 audio_path=audio_path,
                 image_path=image_path,
-                output_dir=tmpdir,
+                output_path=video_path,
                 prompt=prompt,
                 resolution=resolution,
                 seed=seed
