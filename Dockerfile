@@ -74,13 +74,13 @@ RUN cd /app/wan2.2 && \
 # Install huggingface-cli for model download
 RUN pip3 install "huggingface_hub[cli]"
 
-# Download the model during build (will use HF_TOKEN at runtime if needed)
-# Note: For public models, this works without token. For private/gated, token needed at runtime.
+# Download the model during build (public model, no token needed)
+# If model is gated/private, set HUGGINGFACE_TOKEN env var in RunPod and download will retry at runtime
 RUN mkdir -p /app/models && \
-    huggingface-cli download Wan-AI/Wan2.2-S2V-14B \
+    (huggingface-cli download Wan-AI/Wan2.2-S2V-14B \
         --local-dir /app/models/Wan2.2-S2V-14B \
         --local-dir-use-symlinks False || \
-    echo "Model download will happen at runtime if HF_TOKEN is provided"
+     echo "Note: Model download skipped (may need HUGGINGFACE_TOKEN for gated models)")
 
 # Add Wan2.2 to Python path
 ENV PYTHONPATH=/app/wan2.2:$PYTHONPATH
