@@ -1,46 +1,16 @@
 """
-Test RunPod Wan2.2-S2V endpoint with publicly available sample files
+Wait for a RunPod job to complete and download the video
 """
 import requests
 import base64
 import json
 import time
+import sys
 
 # RunPod API Configuration
 RUNPOD_API_KEY = "rpa_C55TBQG7H6FM7G3Q7A6JM7ZJCDKA3I2J3EO0TAH8fxyddo"
 ENDPOINT_ID = "vcj8g1qxre37mq"
 RUNPOD_API_URL = f"https://api.runpod.ai/v2/{ENDPOINT_ID}"
-
-# Public test files - using more reliable URLs
-# Using a GitHub raw URL for audio (more reliable than university servers)
-AUDIO_URL = "https://raw.githubusercontent.com/mathiasbynens/small/master/wav.wav"
-IMAGE_URL = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop"
-
-def submit_job(audio_url, image_url, resolution="480"):
-    """Submit a job to RunPod endpoint"""
-    payload = {
-        "input": {
-            "audio_url": audio_url,
-            "image_url": image_url,
-            "resolution": resolution
-        }
-    }
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {RUNPOD_API_KEY}"
-    }
-    
-    print(f"Submitting job to RunPod...")
-    response = requests.post(
-        f"{RUNPOD_API_URL}/run",
-        json=payload,
-        headers=headers,
-        timeout=30
-    )
-    
-    response.raise_for_status()
-    return response.json()
 
 def get_job_status(job_id):
     """Get the status of a RunPod job"""
@@ -58,55 +28,42 @@ def get_job_status(job_id):
     return response.json()
 
 def main():
+    if len(sys.argv) < 2:
+        print("Usage: python wait_and_download.py <job_id> [output_filename]")
+        print("\nExample: python wait_and_download.py 2504d183-8637-4a01-b115-ea62a84686dc-u1")
+        sys.exit(1)
+    
+    job_id = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) > 2 else f"output_video_{job_id[:8]}.mp4"
+    
     print("=" * 60)
-    print("Testing RunPod Wan2.2-S2V Endpoint")
+    print(f"Waiting for job: {job_id}")
+    print(f"Output will be saved to: {output_file}")
     print("=" * 60)
+    print("\nWaiting for video generation...")
+    print("(This may take 10-30+ minutes - please wait)\n")
     
-    print(f"\nUsing test files:")
-    print(f"  Audio: {AUDIO_URL}")
-    print(f"  Image: {IMAGE_URL}")
-    
-    # Submit job
-    print("\nStep 1: Submitting job to RunPod...")
-    try:
-        job_result = submit_job(AUDIO_URL, IMAGE_URL, resolution="480")
-        job_id = job_result.get("id")
-        
-        if not job_id:
-            print(f"❌ Error: No job ID returned.")
-            print(f"Response: {json.dumps(job_result, indent=2)}")
-            return
-        
-        print(f"✓ Job submitted: {job_id}")
-        
-    except Exception as e:
-        print(f"❌ Error submitting job: {e}")
-        if hasattr(e, 'response') and e.response is not None:
-            try:
-                print(f"Response: {e.response.text}")
-            except:
-                pass
-        return
-    
-    # Poll for results
-    print("\nStep 2: Waiting for video generation...")
-    print("(This may take several minutes - please wait)")
-    
-    max_wait_time = 600  # 10 minutes
-    check_interval = 5  # Check every 5 seconds
+    max_wait_time = 1800  # 30 minutes
+    check_interval = 10  # Check every 10 seconds
     elapsed_time = 0
+    last_status = None
     
     while elapsed_time < max_wait_time:
         try:
             status = get_job_status(job_id)
             job_status = status.get("status")
             
+            # Only print status if it changed
+            if job_status != last_status:
+                print(f"[{elapsed_time//60}m {elapsed_time%60}s] Status: {job_status}")
+                last_status = job_status
+            
             if job_status == "COMPLETED":
                 output = status.get("output")
                 if output and output.get("status") == "success":
                     # Download video
+                    print("\n✅ Job completed! Downloading video...")
                     video_data = base64.b64decode(output["video"])
-                    output_file = "output_video.mp4"
                     
                     with open(output_file, "wb") as f:
                         f.write(video_data)
@@ -116,6 +73,7 @@ def main():
                     print(f"   Video saved to: {output_file}")
                     print(f"   Resolution: {output.get('resolution')}P")
                     print(f"   Duration: {output.get('duration')} seconds")
+                    print(f"   Format: {output.get('format', 'mp4')}")
                     print(f"\nYou can now play {output_file}")
                     return
                 else:
@@ -127,15 +85,22 @@ def main():
                     
             elif job_status == "FAILED":
                 print(f"\n❌ Job failed")
-                print(f"Details: {json.dumps(status, indent=2)}")
+                output = status.get("output", {})
+                if output.get("error"):
+                    print(f"Error: {output['error']}")
+                print(f"\nFull status:")
+                print(json.dumps(status, indent=2))
                 return
                 
             elif job_status in ["IN_QUEUE", "IN_PROGRESS"]:
-                print(f"  Status: {job_status}... (elapsed: {elapsed_time}s)")
+                # Show progress every 30 seconds
+                if elapsed_time % 30 == 0 and elapsed_time > 0:
+                    exec_time = status.get("executionTime", 0) / 1000
+                    print(f"  Still processing... (elapsed: {elapsed_time//60}m {elapsed_time%60}s, execution: {exec_time:.1f}s)")
+                
                 time.sleep(check_interval)
                 elapsed_time += check_interval
             else:
-                print(f"  Status: {job_status}...")
                 time.sleep(check_interval)
                 elapsed_time += check_interval
                 
@@ -146,6 +111,7 @@ def main():
     
     print(f"\n❌ Timeout: Job did not complete within {max_wait_time} seconds")
     print(f"Job ID: {job_id} - Check status manually in RunPod console")
+    print(f"You can check status with: python check_job_status.py {job_id}")
 
 if __name__ == "__main__":
     main()

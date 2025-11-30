@@ -120,21 +120,38 @@ def run_generate_script(audio_path, image_path, output_path, prompt="", resoluti
     
     print(f"Running: {' '.join(cmd)}")
     
-    # Run generate.py
-    result = subprocess.run(
+    # Run generate.py with real-time output streaming
+    process = subprocess.Popen(
         cmd,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # Combine stderr into stdout
         text=True,
-        timeout=1800,  # 30 minute timeout
+        bufsize=1,  # Line buffered
+        universal_newlines=True,
         cwd="/app/wan2.2"
     )
     
-    if result.returncode != 0:
-        print(f"STDOUT: {result.stdout}")
-        print(f"STDERR: {result.stderr}")
-        raise Exception(f"generate.py failed: {result.stderr}")
-    
-    print(f"Generation completed: {result.stdout}")
+    # Stream output in real-time
+    stdout_lines = []
+    try:
+        for line in process.stdout:
+            line = line.rstrip()
+            if line:  # Only print non-empty lines
+                print(f"[generate.py] {line}")
+                stdout_lines.append(line)
+        
+        process.wait(timeout=1800)  # 30 minute timeout
+        
+        if process.returncode != 0:
+            error_output = '\n'.join(stdout_lines)
+            print(f"STDERR/STDOUT: {error_output}")
+            raise Exception(f"generate.py failed with return code {process.returncode}")
+        
+        print(f"Generation completed successfully")
+        
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise Exception("generate.py timed out after 30 minutes")
     
     # Check if output_path exists (if --output was used)
     if output_path and os.path.exists(output_path):
