@@ -90,10 +90,8 @@ def download_file(url: str, output_path: str) -> str:
 def run_generate_script(audio_path, image_path, output_path, prompt="", resolution="720", seed=None):
     """Run the Wan2.2 generate.py script for S2V generation."""
     # Calculate size based on resolution
-    # Note: Temporarily using 768*512 for 480P to match current endpoint
-    # Will update to 832*480 once new build completes
     if resolution == "480":
-        size = "768*512"  # Temporary for old endpoint
+        size = "480*832"  # 480P resolution
     else:
         size = "1024*704"  # 720P as per docs
     
